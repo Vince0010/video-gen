@@ -11,11 +11,12 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
-W, H = 1152, 648
+DEFAULT_SIZE = (1152, 648)
 
 
-def _radial_gradient(center_x: int, center_y: int, inner_rgb, outer_rgb, max_radius: int) -> Image.Image:
+def _radial_gradient(size, center_x: int, center_y: int, inner_rgb, outer_rgb, max_radius: int) -> Image.Image:
     """Build a radial gradient as a new RGBA image."""
+    W, H = size
     img = Image.new("RGB", (W, H), outer_rgb)
     px = img.load()
     for y in range(H):
@@ -32,6 +33,7 @@ def _radial_gradient(center_x: int, center_y: int, inner_rgb, outer_rgb, max_rad
 
 def _add_grain(img: Image.Image, strength: int = 8) -> Image.Image:
     """Film-grain overlay for that cinematic feel."""
+    W, H = img.size
     rng = random.Random(42)
     noise = Image.new("L", (W, H))
     npx = noise.load()
@@ -51,13 +53,13 @@ def _draw_ring(img: Image.Image, cx: int, cy: int, radius: int, thickness: int, 
         )
 
 
-def generate_card(scene_index: int, out_path: Path, seed: int | None = None) -> Path:
+def generate_card(scene_index: int, out_path: Path, seed: int | None = None, size: tuple[int, int] | None = None) -> Path:
     """Generate a dark cinematic card with a green glow — Lanterns-teaser aesthetic."""
+    W, H = size if size else DEFAULT_SIZE
     rng = random.Random(seed if seed is not None else scene_index)
-    # Jitter the glow center so each card looks different
     cx = W // 2 + rng.randint(-120, 120)
     cy = H // 2 + rng.randint(-80, 80)
-    img = _radial_gradient(cx, cy, inner_rgb=(10, 60, 30), outer_rgb=(5, 10, 8), max_radius=max(W, H))
+    img = _radial_gradient((W, H), cx, cy, inner_rgb=(10, 60, 30), outer_rgb=(5, 10, 8), max_radius=max(W, H))
 
     # Blur the gradient slightly for a soft glow
     img = img.filter(ImageFilter.GaussianBlur(radius=18))

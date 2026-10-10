@@ -36,11 +36,10 @@ from moviepy.editor import (
     concatenate_videoclips,
 )
 
-W, H = 1152, 648
+LANDSCAPE = (1152, 648)
+PORTRAIT = (648, 1152)
 FPS = 24
-CAPTION_FONTSIZE = 44
 CAPTION_BOTTOM_PAD = 50
-LOWER_THIRD_HEIGHT = 180
 CROSSFADE = 0.5
 TITLE_DURATION = 2.2
 OUTRO_DURATION = 2.2
@@ -65,79 +64,88 @@ def _wrap_caption(text: str, max_chars: int = 55) -> str:
     return "\n".join(lines)
 
 
-def _title_card(text: str, duration: float, subtitle: str | None = None):
+def _title_card(text: str, duration: float, size: tuple[int, int], subtitle: str | None = None):
+    """Title/outro card. Title font is scaled DOWN until the text fits within 92% of width."""
+    W, H = size
     bg = ColorClip(size=(W, H), color=(5, 10, 8)).set_duration(duration)
+
+    # Use PIL to measure and auto-fit the title width
+    from PIL import ImageFont
+    text_up = text.upper()
+    max_px = int(W * 0.92)
+    fontsize = int(min(W, H) * 0.16)  # start big
+    font = ImageFont.truetype(FONT_PATH, fontsize)
+    while fontsize > 24:
+        bbox = font.getbbox(text_up)
+        if (bbox[2] - bbox[0]) <= max_px:
+            break
+        fontsize -= 4
+        font = ImageFont.truetype(FONT_PATH, fontsize)
+    sub_font = max(22, int(fontsize * 0.4))
+
     title = (
         TextClip(
-            text.upper(),
-            fontsize=96,
+            text_up,
+            fontsize=fontsize,
             color="#2fff8c",
             font=FONT_PATH,
             method="label",
-            stroke_color="black",
-            stroke_width=1,
         )
         .set_duration(duration)
-        .set_position(("center", "center"))
     )
+    title = title.set_position(("center", (H - title.h) // 2))
     layers = [bg, title]
     if subtitle:
         sub = (
             TextClip(
                 subtitle,
-                fontsize=28,
+                fontsize=sub_font,
                 color="white",
                 font=FONT_PATH,
                 method="label",
             )
             .set_duration(duration)
-            .set_position(("center", H // 2 + 70))
         )
+        sub = sub.set_position(("center", (H + title.h) // 2 + 20))
         layers.append(sub)
     clip = CompositeVideoClip(layers, size=(W, H)).set_duration(duration)
     return clip.crossfadein(0.4).crossfadeout(0.4)
 
 
-def build_scene_clip(image_path: Path, audio_path: Path, caption_text: str, scene_idx: int):
+def build_scene_clip(image_path: Path, audio_path: Path, caption_text: str, scene_idx: int, size: tuple[int, int], caption_dir: Path | None = None):
+    W, H = size
     audio = AudioFileClip(str(audio_path))
     duration = audio.duration
 
-    # Ken Burns: alternate scenes zoom in / zoom out slightly to add life.
+    is_portrait = H > W
+    caption_fontsize = int(min(W, H) * 0.072) if is_portrait else 42
+
+    # Ken Burns zoom
     zoom_in = scene_idx % 2 == 0
     base = ImageClip(str(image_path)).set_duration(duration)
-    base = base.resize((int(W * 1.15), int(H * 1.15)))  # oversize so we can zoom without edges
-
+    base = base.resize((int(W * 1.15), int(H * 1.15)))
     if zoom_in:
         base = base.resize(lambda t: 1.0 + 0.04 * t / max(duration, 0.1))
     else:
         base = base.resize(lambda t: 1.04 - 0.04 * t / max(duration, 0.1))
     base = base.set_position(("center", "center"))
 
-    lower = (
-        ColorClip(size=(W, LOWER_THIRD_HEIGHT), color=(0, 0, 0))
-        .set_opacity(0.55)
-        .set_duration(duration)
-        .set_position((0, H - LOWER_THIRD_HEIGHT))
+    # PIL-rendered caption (much cleaner than TextClip + ImageMagick stroke)
+    from src.captions import render_caption_to_file
+    if caption_dir is None:
+        caption_dir = Path("scratch/_captions")
+    caption_png = caption_dir / f"cap_{scene_idx:02d}.png"
+    render_caption_to_file(
+        caption_text,
+        caption_png,
+        canvas_w=W,
+        canvas_h=H,
+        fontsize=caption_fontsize,
     )
-
-    caption = (
-        TextClip(
-            _wrap_caption(caption_text),
-            fontsize=CAPTION_FONTSIZE,
-            color="white",
-            font=FONT_PATH,
-            method="caption",
-            size=(W - 160, None),
-            align="center",
-            stroke_color="black",
-            stroke_width=1,
-        )
-        .set_duration(duration)
-    )
-    caption = caption.set_position(("center", H - CAPTION_BOTTOM_PAD - caption.h))
+    caption = ImageClip(str(caption_png)).set_duration(duration).set_position((0, 0))
 
     return (
-        CompositeVideoClip([base, lower, caption], size=(W, H))
+        CompositeVideoClip([base, caption], size=(W, H))
         .set_audio(audio)
         .set_duration(duration)
     )
@@ -149,21 +157,25 @@ def assemble_video(
     narrations: list[str],
     out_path: Path,
     title: str = "",
+    aspect: str = "landscape",
 ) -> Path:
     assert len(image_paths) == len(audio_paths) == len(narrations), "scene lengths must match"
+    size = PORTRAIT if aspect == "portrait" else LANDSCAPE
+    caption_dir = out_path.parent.parent / "scratch" / "_captions" / out_path.stem
+    caption_dir.mkdir(parents=True, exist_ok=True)
 
     scene_clips = []
     for i, (img, aud, text) in enumerate(zip(image_paths, audio_paths, narrations)):
-        c = build_scene_clip(img, aud, text, scene_idx=i)
+        c = build_scene_clip(img, aud, text, scene_idx=i, size=size, caption_dir=caption_dir)
         if i > 0:
             c = c.crossfadein(CROSSFADE)
         scene_clips.append(c)
 
     clips = []
     if title:
-        clips.append(_title_card(title, TITLE_DURATION))
+        clips.append(_title_card(title, TITLE_DURATION, size=size))
     clips.extend(scene_clips)
-    clips.append(_title_card(title or "", OUTRO_DURATION, subtitle="— fin —"))
+    clips.append(_title_card(title or "", OUTRO_DURATION, size=size, subtitle="— fin —"))
 
     final = concatenate_videoclips(clips, method="compose", padding=-CROSSFADE)
 
