@@ -76,18 +76,31 @@ def _file_info(titles: list[str]) -> list[dict]:
     return out
 
 
-def _is_usable_photo(info: dict) -> bool:
+def _is_usable_photo(info: dict, require_tokens: list[str] | None = None) -> bool:
     mime = info.get("mime", "")
     if mime not in ("image/jpeg", "image/png", "image/webp"):
         return False
     w, h = info.get("width", 0), info.get("height", 0)
     if w * h < MIN_PIXELS:
         return False
-    # Skip obvious logos / coat-of-arms
     title = info.get("title", "").lower()
     if any(skip in title for skip in ("logo", "coat_of_arms", "crest", "icon", ".svg")):
         return False
+    # Topic-locking: reject anything whose title doesn't mention a topic keyword.
+    if require_tokens:
+        if not any(tok in title for tok in require_tokens):
+            return False
     return True
+
+
+def _topic_tokens(topic: str) -> list[str]:
+    """Normalize the topic into a list of lower-case content tokens for title matching."""
+    import re
+    stop = {"the", "a", "an", "of", "and", "about", "with", "how", "why",
+            "know", "did", "you", "these", "those", "wild", "fun", "facts",
+            "fact", "that", "in", "on", "for", "to"}
+    toks = [t.lower() for t in re.findall(r"[A-Za-z0-9]+", topic)]
+    return [t for t in toks if len(t) > 2 and t not in stop]
 
 
 def _download_fit(url: str, out_path: Path, size: tuple[int, int]) -> None:
@@ -108,7 +121,7 @@ def _download_fit(url: str, out_path: Path, size: tuple[int, int]) -> None:
     img.save(out_path, "JPEG", quality=92)
 
 
-def _try_commons(query: str, out_path: Path, size: tuple[int, int]) -> bool:
+def _try_commons(query: str, out_path: Path, size: tuple[int, int], require_tokens: list[str] | None = None) -> bool:
     try:
         titles = _search_commons(query)
     except Exception as e:
@@ -118,7 +131,7 @@ def _try_commons(query: str, out_path: Path, size: tuple[int, int]) -> bool:
         return False
     infos = _file_info(titles)
     for info in infos:
-        if not _is_usable_photo(info):
+        if not _is_usable_photo(info, require_tokens=require_tokens):
             continue
         try:
             _download_fit(info["url"], out_path, size)
@@ -129,13 +142,12 @@ def _try_commons(query: str, out_path: Path, size: tuple[int, int]) -> bool:
     return False
 
 
-def _try_openverse(query: str, out_path: Path, size: tuple[int, int]) -> bool:
-    """Openverse aggregates CC-licensed images from Flickr, museums, Wikimedia, etc.
-    No API key required for the public endpoint."""
+def _try_openverse(query: str, out_path: Path, size: tuple[int, int], require_tokens: list[str] | None = None) -> bool:
+    """Openverse aggregates CC-licensed images from Flickr, museums, Wikimedia, etc."""
     try:
         r = requests.get(
             OPENVERSE_API,
-            params={"q": query, "page_size": 10, "license_type": "all"},
+            params={"q": query, "page_size": 15, "license_type": "all"},
             headers={"User-Agent": UA, "Accept": "application/json"},
             timeout=20,
         )
@@ -153,6 +165,12 @@ def _try_openverse(query: str, out_path: Path, size: tuple[int, int]) -> bool:
         h = item.get("height", 0) or 0
         if w and h and w * h < MIN_PIXELS:
             continue
+        # Topic-lock: title/tags must mention a topic token
+        if require_tokens:
+            title = (item.get("title") or "").lower()
+            tags_blob = " ".join(t.get("name", "") for t in (item.get("tags") or [])).lower()
+            if not any(tok in title or tok in tags_blob for tok in require_tokens):
+                continue
         try:
             _download_fit(url, out_path, size)
             return True
@@ -186,42 +204,50 @@ def _extract_nouns(text: str) -> list[str]:
 
 
 def find_image(query: str, out_path: Path, size: tuple[int, int], topic: str = "") -> bool:
-    """Search multiple web sources until a real photo is found.
+    """Topic-locked multi-source search.
 
-    Query order:
-      1. the provided query (most specific)
-      2. the topic alone (reliable fallback for popular subjects)
-      3. extracted noun phrases from the query
-      4. the extracted phrases again, via Openverse
+    If `topic` is provided, EVERY returned image must have at least one topic
+    token in its title/tags — otherwise results are rejected. This stops
+    "green" matching a green mankini guy, "cosmic" matching Saturn, etc.
+
+    Query strategy (each is bracketed with the topic to pull it to the top):
+      1. "{topic}" + scene query — most specific
+      2. topic alone — reliable broad topic hit
+      3. topic + extracted noun phrases from the scene query
+      4. same chain via Openverse
     """
-    tried: list[str] = []
+    require = _topic_tokens(topic) if topic else None
+    tried: list[tuple[str, str]] = []
 
-    def _attempt(q: str, source_fn) -> bool:
+    def _attempt(src: str, q: str, source_fn) -> bool:
         q = q.strip()
-        if not q or q in tried:
+        if not q or (src, q) in tried:
             return False
-        tried.append(q)
-        return source_fn(q, out_path, size)
+        tried.append((src, q))
+        return source_fn(q, out_path, size, require_tokens=require)
 
-    # Try Commons first (highest-quality curated photos)
-    if _attempt(query, _try_commons):
-        return True
-    if topic and _attempt(topic, _try_commons):
-        return True
-    for phrase in _extract_nouns(query):
-        if _attempt(phrase, _try_commons):
+    # Build the query list — always lead with the topic
+    def _queries() -> list[str]:
+        out: list[str] = []
+        if topic and query and topic.lower() not in query.lower():
+            out.append(f'"{topic}" {query}')
+        if query:
+            out.append(query)
+        if topic:
+            out.append(topic)
+        for phrase in _extract_nouns(query):
+            if topic:
+                out.append(f'"{topic}" {phrase}')
+            else:
+                out.append(phrase)
+        return out
+
+    for q in _queries():
+        if _attempt("commons", q, _try_commons):
             return True
-
-    # Then Openverse (aggregates many free sources)
-    tried.clear()
-    if _attempt(query, _try_openverse):
-        return True
-    if topic and _attempt(topic, _try_openverse):
-        return True
-    for phrase in _extract_nouns(query):
-        if _attempt(phrase, _try_openverse):
+    for q in _queries():
+        if _attempt("openverse", q, _try_openverse):
             return True
-
     return False
 
 

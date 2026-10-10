@@ -71,7 +71,7 @@ FORMATS: dict[str, dict] = {
 
 def _build_system(format_key: str, scene_count: int) -> str:
     f = FORMATS[format_key]
-    return f"""You write video scripts.
+    return f"""You are a professional video script writer. You write TIGHT, RESEARCHED, specific lines — never filler, never improv.
 
 Format: {f["label"]}
 Tone & structure: {f["tone"]}
@@ -84,16 +84,19 @@ Return STRICT JSON ONLY matching:
     {{
       "narration": "<spoken by narrator, 10-25 words, matches the tone above>",
       "image_prompt": "<concrete visual: nouns + setting + lighting + mood, 15-30 words. No text, no brand names, no watermarks>",
-      "search": "<2-5 word keyword phrase for image search, concrete nouns only, e.g. 'octopus underwater', 'green lantern comic cover', 'coffee bean farm'. Must be real-world things that would appear in Wikipedia or a stock-photo library>"
+      "search": "<MUST begin with the main subject name from the topic (e.g. 'Green Lantern', 'Saturn', 'octopus'), followed by 1-3 extra concrete nouns describing this specific scene. Example: 'Green Lantern Hal Jordan', 'Saturn rings Cassini', 'octopus coral reef'. Keep it 3-5 words total.>"
     }}
   ]
 }}
 
-Rules:
-- Exactly {scene_count} scenes
-- Narration MUST match the tone above
-- Image prompts must be concrete (nouns + setting + lighting + mood)
-- No markdown, no code fences, no commentary — JSON only
+Hard rules — do NOT break these:
+- Exactly {scene_count} scenes.
+- Every `search` field MUST contain the main subject from the topic. If the user says "Green Lantern", every search starts with "Green Lantern".
+- Narration must be REAL FACTS or coherent professional writing. If you don't know a fact, write a general true statement — do NOT invent nonsense.
+- BANNED words/phrases in narration: "Yay", "Wild", "Truly wild", "Try that next time", "Wow", "OMG", filler exclamations, directly addressing the viewer, meta commentary.
+- Each line must stand on its own and sound like a documentary narrator reading it. Read it aloud in your head — does it sound professional? If not, rewrite.
+- Image prompts: concrete nouns + lighting + mood. No text in image, no brand names, no watermarks.
+- Output JSON only — no markdown, no code fences, no commentary.
 """
 
 
@@ -169,7 +172,7 @@ def generate_script_groq(topic: str, format_key: str = "explainer", scene_count:
         try:
             resp = client.chat.completions.create(
                 model=model,
-                temperature=0.9,
+                temperature=0.6,  # lower temp → fewer "Yay"-style improvisations
                 max_tokens=1500,
                 response_format={"type": "json_object"},
                 messages=[
