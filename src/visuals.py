@@ -78,24 +78,20 @@ def fetch_scene_images_hybrid(
 ) -> list[Path]:
     """Fetch one image per scene using a configurable source order.
 
-    source:
-      web_first — Commons → Pollinations → placeholder
-      ai_first  — Pollinations → Commons → placeholder
-      web_only  — Commons → placeholder
-      ai_only   — Pollinations → placeholder
+    Chain: specific-query → topic-fallback → noun-phrases → Openverse → reuse
+    earlier successful image from this run. NEVER a procedural placeholder.
     """
-    from src.placeholder import generate_card
-    from src.web_images import find_image as commons_find
+    import shutil as _shutil
+    from src.web_images import find_image as web_find
 
     size = PORTRAIT if aspect == "portrait" else LANDSCAPE
     scratch_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
+    successful: list[Path] = []  # pool of already-found images, for last-resort reuse
 
-    def _commons(scene, p) -> bool:
+    def _web(scene, p) -> bool:
         q = (scene.search or "").strip() or scene.image_prompt
-        if topic and topic.lower() not in q.lower():
-            q = f"{topic} {q}"
-        return commons_find(q, p, size)
+        return web_find(q, p, size, topic=topic)
 
     def _ai(scene, p) -> bool:
         seed = int(hashlib.md5(scene.image_prompt.encode()).hexdigest()[:8], 16) % (2**31)
@@ -105,32 +101,42 @@ def fetch_scene_images_hybrid(
         except Exception:
             return False
 
+    order_map = {
+        "web_first": [("web", _web), ("pollinations", _ai)],
+        "ai_first":  [("pollinations", _ai), ("web", _web)],
+        "web_only":  [("web", _web)],
+        "ai_only":   [("pollinations", _ai), ("web", _web)],  # even "ai_only" uses web as fallback — no placeholders
+    }
+
     for i, scene in enumerate(scenes):
         p = scratch_dir / f"scene_{i:02d}.jpg"
         print(f"  scene {i+1}/{len(scenes)}: ", end="", flush=True)
-        used = "placeholder"
-
-        order = {
-            "web_first": [("commons", _commons), ("pollinations", _ai)],
-            "ai_first":  [("pollinations", _ai), ("commons", _commons)],
-            "web_only":  [("commons", _commons)],
-            "ai_only":   [("pollinations", _ai)],
-        }[source]
-
-        for name, fn in order:
+        used = None
+        for name, fn in order_map[source]:
             if fn(scene, p):
                 used = name
                 print(f"{name} OK")
                 break
-        else:
-            seed = int(hashlib.md5(scene.image_prompt.encode()).hexdigest()[:8], 16) % (2**31)
-            generate_card(i, p, seed=seed, size=size)
-            print("all sources failed → placeholder")
 
+        if used is None:
+            # No source produced an image. Reuse an earlier successful one.
+            if successful:
+                src_path = successful[i % len(successful)]
+                _shutil.copyfile(src_path, p)
+                used = f"reuse(scene_{successful.index(src_path):02d})"
+                print(f"→ {used}")
+            else:
+                # Absolute last resort: try the topic itself via Commons/Openverse ignoring the scene.
+                if topic and web_find(topic, p, size, topic=topic):
+                    used = "web(topic)"
+                    print("web(topic) OK")
+
+        if p.exists():
+            successful.append(p)
         paths.append(p)
         if progress_cb:
             try:
-                progress_cb(i, len(scenes), p, used)
+                progress_cb(i, len(scenes), p, used or "unknown")
             except Exception:
                 pass
         if i < len(scenes) - 1 and used == "pollinations":

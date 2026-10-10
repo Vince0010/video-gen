@@ -19,6 +19,8 @@ import requests
 from PIL import Image
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
+OPENVERSE_API = "https://api.openverse.org/v1/images/"
 MIN_PIXELS = 400 * 300          # skip tiny icons
 MAX_RESULTS_PER_QUERY = 10
 UA = "video-gen/0.1 (prototype; https://github.com/Vince0010/video-gen)"
@@ -106,15 +108,11 @@ def _download_fit(url: str, out_path: Path, size: tuple[int, int]) -> None:
     img.save(out_path, "JPEG", quality=92)
 
 
-def find_image(query: str, out_path: Path, size: tuple[int, int]) -> bool:
-    """Search Commons for `query` and save the first usable photo to out_path.
-
-    Returns True on success, False if nothing suitable was found.
-    """
+def _try_commons(query: str, out_path: Path, size: tuple[int, int]) -> bool:
     try:
         titles = _search_commons(query)
     except Exception as e:
-        print(f"    Commons search failed: {e}")
+        print(f"    commons({query!r}) search error: {e}")
         return False
     if not titles:
         return False
@@ -126,8 +124,104 @@ def find_image(query: str, out_path: Path, size: tuple[int, int]) -> bool:
             _download_fit(info["url"], out_path, size)
             return True
         except Exception as e:
-            print(f"    Commons download failed for {info.get('title')}: {e}")
+            print(f"    commons({query!r}) download fail: {e}")
             continue
+    return False
+
+
+def _try_openverse(query: str, out_path: Path, size: tuple[int, int]) -> bool:
+    """Openverse aggregates CC-licensed images from Flickr, museums, Wikimedia, etc.
+    No API key required for the public endpoint."""
+    try:
+        r = requests.get(
+            OPENVERSE_API,
+            params={"q": query, "page_size": 10, "license_type": "all"},
+            headers={"User-Agent": UA, "Accept": "application/json"},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return False
+        results = r.json().get("results", [])
+    except Exception as e:
+        print(f"    openverse({query!r}) search error: {e}")
+        return False
+    for item in results:
+        url = item.get("url") or item.get("thumbnail")
+        if not url:
+            continue
+        w = item.get("width", 0) or 0
+        h = item.get("height", 0) or 0
+        if w and h and w * h < MIN_PIXELS:
+            continue
+        try:
+            _download_fit(url, out_path, size)
+            return True
+        except Exception as e:
+            print(f"    openverse download fail: {e}")
+            continue
+    return False
+
+
+def _extract_nouns(text: str) -> list[str]:
+    """Pull candidate 2-3 word noun phrases from a longer prompt — crude but works."""
+    import re
+    text = re.sub(r"[^A-Za-z0-9 ]", " ", text)
+    words = [w for w in text.split() if len(w) > 2]
+    stop = {"the", "and", "with", "that", "this", "from", "into", "them", "they", "them",
+            "them", "then", "these", "those", "where", "when", "while", "there", "which",
+            "cinematic", "35mm", "film", "still", "4K", "dramatic", "lighting", "mood"}
+    kept = [w for w in words if w.lower() not in stop]
+    phrases = []
+    if len(kept) >= 2:
+        phrases.append(" ".join(kept[:3]))
+        phrases.append(" ".join(kept[:2]))
+    phrases += kept[:5]
+    seen, out = set(), []
+    for p in phrases:
+        if p.lower() in seen:
+            continue
+        seen.add(p.lower())
+        out.append(p)
+    return out
+
+
+def find_image(query: str, out_path: Path, size: tuple[int, int], topic: str = "") -> bool:
+    """Search multiple web sources until a real photo is found.
+
+    Query order:
+      1. the provided query (most specific)
+      2. the topic alone (reliable fallback for popular subjects)
+      3. extracted noun phrases from the query
+      4. the extracted phrases again, via Openverse
+    """
+    tried: list[str] = []
+
+    def _attempt(q: str, source_fn) -> bool:
+        q = q.strip()
+        if not q or q in tried:
+            return False
+        tried.append(q)
+        return source_fn(q, out_path, size)
+
+    # Try Commons first (highest-quality curated photos)
+    if _attempt(query, _try_commons):
+        return True
+    if topic and _attempt(topic, _try_commons):
+        return True
+    for phrase in _extract_nouns(query):
+        if _attempt(phrase, _try_commons):
+            return True
+
+    # Then Openverse (aggregates many free sources)
+    tried.clear()
+    if _attempt(query, _try_openverse):
+        return True
+    if topic and _attempt(topic, _try_openverse):
+        return True
+    for phrase in _extract_nouns(query):
+        if _attempt(phrase, _try_openverse):
+            return True
+
     return False
 
 
