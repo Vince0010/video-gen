@@ -1,0 +1,31 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# node
+node_modules/
+dist/
+build/
+
+# outputs / scratch
+out/
+output/
+tmp/
+*.mp4
+*.mp3
+*.wav
+*.webm
+assets/cache/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
