@@ -1,26 +1,27 @@
 {
-  "title": "Lanterns — HBO",
+  "title": "Lanterns",
   "voice": "en-US-AndrewMultilingualNeural",
+  "topic_context": "Green Lantern Corps, HBO dark fantasy sci-fi series, cinematic film still, 35mm film look, dramatic lighting, teaser trailer aesthetic",
   "scenes": [
     {
-      "narration": "In the farthest corner of the universe, a light awakens.",
-      "image_prompt": "deep cosmic void with distant swirling nebula, a single tiny emerald green star flickering alone in darkness, cinematic, hyper detailed, dramatic lighting, 35mm film"
+      "narration": "In the silence between stars, something older than light begins to stir.",
+      "image_prompt": "a lone cosmic entity in the void of deep space, a distant pulse of emerald green light flickering in a vast nebula, overwhelming scale, atmospheric and mysterious"
     },
     {
-      "narration": "Forged from pure willpower, it chooses only the fearless.",
-      "image_prompt": "glowing emerald green power ring resting on cracked rocky alien ground, intense green light radiating outward, cinematic macro shot, dust particles, god rays"
+      "narration": "A ring falls to earth, and it does not choose the strongest. It chooses the ones who will not look away.",
+      "image_prompt": "an emerald green power ring resting on cracked desert ground at dusk, intense green light radiating outward in beams, dust and ash drifting in the air, extreme close-up"
     },
     {
-      "narration": "An ordinary man. An impossible calling.",
-      "image_prompt": "silhouette of a lone man standing on a desert cliff at dusk, green light descending from above enveloping him, dramatic cinematic composition, atmospheric fog, movie poster lighting"
+      "narration": "He was ordinary once. A man with a quiet life, and a weight he could not name.",
+      "image_prompt": "silhouette of a young man standing alone on an empty rural highway at twilight, a column of green light descending from the clouds above him, wide cinematic composition"
     },
     {
-      "narration": "You are not the first. And you will not stand alone.",
-      "image_prompt": "diverse group of alien warriors in sleek green and black uniforms standing in formation on an alien plain, glowing green aura around them, epic science fiction cinematic wide shot, dramatic sky"
+      "narration": "They have guarded the universe for a billion years. And for the first time, they are afraid.",
+      "image_prompt": "a council of alien warriors in dark green and black armor, seated in a vast circular chamber of stone and starlight, their faces grave, epic scale, deep shadows"
     },
     {
-      "narration": "Lanterns. Streaming only on HBO.",
-      "image_prompt": "massive glowing green lantern symbol rising from earth into the starry sky, cinematic epic composition, dramatic storm clouds parting, teaser poster lighting, movie key art"
+      "narration": "The brightest light casts the deepest shadow. And the shadow has already begun to move.",
+      "image_prompt": "a monumental emerald lantern symbol forming out of storm clouds and distant stars, lightning in the sky, a lone figure far below, apocalyptic cinematic composition"
     }
   ]
 }

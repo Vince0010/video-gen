@@ -25,13 +25,20 @@ class Scene:
 class Script:
     title: str
     scenes: list[Scene]
-    voice: str | None = None  # optional override: an edge-tts voice id
+    voice: str | None = None            # optional override: an edge-tts voice id
+    topic_context: str | None = None    # style/subject hint prepended to every image prompt
 
 
 def load_script_file(path: Path) -> Script:
     data = json.loads(Path(path).read_text())
-    scenes = [Scene(narration=s["narration"], image_prompt=s["image_prompt"]) for s in data["scenes"]]
-    return Script(title=data["title"], scenes=scenes, voice=data.get("voice"))
+    ctx = data.get("topic_context")
+    scenes = []
+    for s in data["scenes"]:
+        prompt = s["image_prompt"]
+        if ctx:
+            prompt = f"{ctx}. {prompt}"
+        scenes.append(Scene(narration=s["narration"], image_prompt=prompt))
+    return Script(title=data["title"], scenes=scenes, voice=data.get("voice"), topic_context=ctx)
 
 
 # ---------- LLM path (requires ANTHROPIC_API_KEY with credit) ----------

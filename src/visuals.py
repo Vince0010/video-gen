@@ -30,6 +30,19 @@ def _get(url: str, params: dict) -> requests.Response:
     return requests.get(url, params=params, headers=headers, timeout=120)
 
 
+WATERMARK_CROP_PX = 60  # strip bottom N px (where Pollinations stamps its mark)
+
+
+def _strip_watermark(path: Path) -> None:
+    """Crop bottom N px and resize back to original dims so downstream math stays simple."""
+    from PIL import Image as _Image
+    img = _Image.open(path)
+    w, h = img.size
+    cropped = img.crop((0, 0, w, max(1, h - WATERMARK_CROP_PX)))
+    cropped = cropped.resize((w, h), _Image.LANCZOS)
+    cropped.save(path, "JPEG", quality=90)
+
+
 def fetch_image(prompt: str, out_path: Path, seed: int | None = None) -> Path:
     encoded = urllib.parse.quote(prompt, safe="")
     url = f"{BASE}/{encoded}"
@@ -44,6 +57,7 @@ def fetch_image(prompt: str, out_path: Path, seed: int | None = None) -> Path:
                 if r.ok and r.headers.get("content-type", "").startswith("image/"):
                     out_path.parent.mkdir(parents=True, exist_ok=True)
                     out_path.write_bytes(r.content)
+                    _strip_watermark(out_path)
                     return out_path
                 last_err = requests.HTTPError(f"{r.status_code} on model={model}: {r.text[:120]}")
             except requests.RequestException as e:

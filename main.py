@@ -50,7 +50,7 @@ def run(script: Script, out_name: str) -> Path:
 
     print(f"[3/3] Assembling mp4")
     out_path = OUT_DIR / f"{slug}.mp4"
-    assemble_video(image_paths, audio_paths, narrations, out_path)
+    assemble_video(image_paths, audio_paths, narrations, out_path, title=script.title)
 
     print(f"\nDone in {time.time() - t0:.1f}s -> {out_path}")
     return out_path
