@@ -7,6 +7,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# MoviePy 1.0.3 references Image.ANTIALIAS which was removed in Pillow 10.
+from PIL import Image as _PILImage
+if not hasattr(_PILImage, "ANTIALIAS"):
+    _PILImage.ANTIALIAS = _PILImage.LANCZOS
+
+# Point MoviePy at ImageMagick (installed via homebrew)
+import os as _os
+import shutil as _shutil
+_magick = _shutil.which("magick") or _shutil.which("convert") or "/opt/homebrew/bin/convert"
+_os.environ["IMAGEMAGICK_BINARY"] = _magick
+from moviepy.config import change_settings as _change_settings
+_change_settings({"IMAGEMAGICK_BINARY": _magick})
+
 from moviepy.editor import (
     AudioFileClip,
     CompositeVideoClip,
@@ -15,10 +28,11 @@ from moviepy.editor import (
     concatenate_videoclips,
 )
 
-W, H = 1280, 720
+W, H = 1152, 648
 FPS = 24
 CAPTION_FONTSIZE = 42
 CAPTION_MARGIN = 60  # from bottom
+FONT_PATH = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 
 
 def _wrap_caption(text: str, max_chars: int = 55) -> str:
@@ -38,7 +52,7 @@ def _wrap_caption(text: str, max_chars: int = 55) -> str:
 
 def build_scene_clip(image_path: Path, audio_path: Path, caption_text: str):
     audio = AudioFileClip(str(audio_path))
-    duration = audio.duration + 0.4  # tiny tail pad so caption doesn't cut mid-word
+    duration = audio.duration
 
     bg = ImageClip(str(image_path)).set_duration(duration).resize((W, H))
 
@@ -47,7 +61,7 @@ def build_scene_clip(image_path: Path, audio_path: Path, caption_text: str):
             _wrap_caption(caption_text),
             fontsize=CAPTION_FONTSIZE,
             color="white",
-            font="Arial-Bold",
+            font=FONT_PATH,
             method="caption",
             size=(W - 120, None),
             align="center",

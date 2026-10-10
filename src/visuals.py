@@ -1,38 +1,79 @@
-"""Pollinations.ai image fetch: prompt -> jpg. No API key required."""
+"""Pollinations.ai image fetch: prompt -> jpg.
+
+Works keyless, but if POLLINATIONS_API_KEY is set we send it as a Bearer
+header — unlocks higher quality (flux-pro), no watermark, higher rate limit.
+"""
 from __future__ import annotations
 
 import hashlib
+import os
+import time
 import urllib.parse
 from pathlib import Path
 
 import requests
 
 BASE = "https://image.pollinations.ai/prompt"
-WIDTH = 1280
-HEIGHT = 720
-MODEL = "flux"  # fast + decent quality
+WIDTH = 1152
+HEIGHT = 648
+# Model order to try: lightest free model first, then flux as fallback.
+MODELS = ["flux", "turbo"]
+BETWEEN_REQUESTS_SEC = 4  # Pollinations free tier throttles aggressively on bursts
+MAX_RETRIES = 3
+
+
+def _get(url: str, params: dict) -> requests.Response:
+    headers = {}
+    key = os.environ.get("POLLINATIONS_API_KEY")
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return requests.get(url, params=params, headers=headers, timeout=120)
 
 
 def fetch_image(prompt: str, out_path: Path, seed: int | None = None) -> Path:
-    """Fetch one image. Pollinations encodes the prompt in the URL path."""
     encoded = urllib.parse.quote(prompt, safe="")
-    params = {"width": WIDTH, "height": HEIGHT, "nologo": "true", "model": MODEL}
-    if seed is not None:
-        params["seed"] = seed
     url = f"{BASE}/{encoded}"
-    r = requests.get(url, params=params, timeout=90)
-    r.raise_for_status()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(r.content)
-    return out_path
+    last_err: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        for model in MODELS:
+            params = {"width": WIDTH, "height": HEIGHT, "nologo": "true", "model": model}
+            if seed is not None:
+                params["seed"] = seed
+            try:
+                r = _get(url, params)
+                if r.ok and r.headers.get("content-type", "").startswith("image/"):
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    out_path.write_bytes(r.content)
+                    return out_path
+                last_err = requests.HTTPError(f"{r.status_code} on model={model}: {r.text[:120]}")
+            except requests.RequestException as e:
+                last_err = e
+            time.sleep(2)  # back off a bit before trying next model
+        # Longer wait between full retry cycles
+        time.sleep(5 * (attempt + 1))
+    raise RuntimeError(f"Pollinations failed after {MAX_RETRIES} retries: {last_err}")
 
 
 def fetch_scene_images(prompts: list[str], scratch_dir: Path) -> list[Path]:
-    """One image per prompt. Deterministic seed per prompt so re-runs are stable."""
+    """One image per prompt. Falls back to a local-rendered card on API failure.
+
+    Deterministic seeds so re-runs are stable.
+    """
+    from src.placeholder import generate_card
+
+    scratch_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for i, prompt in enumerate(prompts):
         seed = int(hashlib.md5(prompt.encode()).hexdigest()[:8], 16) % (2**31)
         p = scratch_dir / f"scene_{i:02d}.jpg"
-        fetch_image(prompt, p, seed=seed)
+        print(f"  scene {i+1}/{len(prompts)}: ", end="", flush=True)
+        try:
+            fetch_image(prompt, p, seed=seed)
+            print("Pollinations OK", flush=True)
+        except Exception as e:
+            print(f"Pollinations failed ({str(e)[:60]}) → local placeholder", flush=True)
+            generate_card(i, p, seed=seed)
         paths.append(p)
+        if i < len(prompts) - 1:
+            time.sleep(BETWEEN_REQUESTS_SEC)
     return paths

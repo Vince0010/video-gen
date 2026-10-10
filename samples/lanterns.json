@@ -1,0 +1,26 @@
+{
+  "title": "Lanterns — HBO",
+  "voice": "en-US-AndrewMultilingualNeural",
+  "scenes": [
+    {
+      "narration": "In the farthest corner of the universe, a light awakens.",
+      "image_prompt": "deep cosmic void with distant swirling nebula, a single tiny emerald green star flickering alone in darkness, cinematic, hyper detailed, dramatic lighting, 35mm film"
+    },
+    {
+      "narration": "Forged from pure willpower, it chooses only the fearless.",
+      "image_prompt": "glowing emerald green power ring resting on cracked rocky alien ground, intense green light radiating outward, cinematic macro shot, dust particles, god rays"
+    },
+    {
+      "narration": "An ordinary man. An impossible calling.",
+      "image_prompt": "silhouette of a lone man standing on a desert cliff at dusk, green light descending from above enveloping him, dramatic cinematic composition, atmospheric fog, movie poster lighting"
+    },
+    {
+      "narration": "You are not the first. And you will not stand alone.",
+      "image_prompt": "diverse group of alien warriors in sleek green and black uniforms standing in formation on an alien plain, glowing green aura around them, epic science fiction cinematic wide shot, dramatic sky"
+    },
+    {
+      "narration": "Lanterns. Streaming only on HBO.",
+      "image_prompt": "massive glowing green lantern symbol rising from earth into the starry sky, cinematic epic composition, dramatic storm clouds parting, teaser poster lighting, movie key art"
+    }
+  ]
+}
