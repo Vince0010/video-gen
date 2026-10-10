@@ -76,26 +76,32 @@ def _build_system(format_key: str, scene_count: int) -> str:
 Format: {f["label"]}
 Tone & structure: {f["tone"]}
 
+First, identify the MAIN SUBJECT of the topic (the proper noun / specific thing). Examples:
+  "did you know fun facts about Green Lantern" → main subject = "Green Lantern"
+  "the history of Saturn's rings" → main subject = "Saturn"
+  "the strangest deep sea creatures" → main subject = "deep sea creatures"
+
 Return STRICT JSON ONLY matching:
 {{
   "title": "<2-5 word title, no punctuation>",
-  "topic_context": "<10-20 word visual style hint prepended to every image_prompt — set an overall look (e.g. 'cinematic film still, 35mm, dark fantasy sci-fi' or 'bright nature documentary, golden hour, 4K cinematography')>",
+  "topic_context": "<10-20 word visual style hint. MUST include the main subject name (e.g. 'Green Lantern comic book art, cinematic lighting, emerald glow, DC comics style')>",
   "scenes": [
     {{
       "narration": "<spoken by narrator, 10-25 words, matches the tone above>",
-      "image_prompt": "<concrete visual: nouns + setting + lighting + mood, 15-30 words. No text, no brand names, no watermarks>",
-      "search": "<MUST begin with the main subject name from the topic (e.g. 'Green Lantern', 'Saturn', 'octopus'), followed by 1-3 extra concrete nouns describing this specific scene. Example: 'Green Lantern Hal Jordan', 'Saturn rings Cassini', 'octopus coral reef'. Keep it 3-5 words total.>"
+      "image_prompt": "<MUST start with the main subject name followed by the specific scene visual. Example for Green Lantern: 'Green Lantern Hal Jordan hovering with power ring glowing, emerald energy radiating, cinematic DC comics art'. 15-30 words. Include specific named characters, items, locations tied to the subject whenever possible.>",
+      "search": "<MUST begin with the main subject name, followed by 1-3 extra concrete nouns describing this specific scene. Example: 'Green Lantern Hal Jordan', 'Saturn rings Cassini', 'octopus coral reef'. 3-5 words total.>"
     }}
   ]
 }}
 
 Hard rules — do NOT break these:
 - Exactly {scene_count} scenes.
-- Every `search` field MUST contain the main subject from the topic. If the user says "Green Lantern", every search starts with "Green Lantern".
+- EVERY image_prompt MUST literally contain the main subject's name. If the topic is Green Lantern, the words "Green Lantern" appear in every image_prompt.
+- EVERY search field MUST begin with the main subject's name.
+- Use specific named characters, items, places tied to the subject when relevant (e.g. for Green Lantern: Hal Jordan, Alan Scott, Guy Gardner, John Stewart, Kyle Rayner, Oa, Guardians, Central Power Battery, Sinestro, Yellow Lanterns).
 - Narration must be REAL FACTS or coherent professional writing. If you don't know a fact, write a general true statement — do NOT invent nonsense.
 - BANNED words/phrases in narration: "Yay", "Wild", "Truly wild", "Try that next time", "Wow", "OMG", filler exclamations, directly addressing the viewer, meta commentary.
-- Each line must stand on its own and sound like a documentary narrator reading it. Read it aloud in your head — does it sound professional? If not, rewrite.
-- Image prompts: concrete nouns + lighting + mood. No text in image, no brand names, no watermarks.
+- Each line must stand on its own and sound like a documentary narrator.
 - Output JSON only — no markdown, no code fences, no commentary.
 """
 
