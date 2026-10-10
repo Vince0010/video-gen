@@ -41,26 +41,81 @@ def load_script_file(path: Path) -> Script:
     return Script(title=data["title"], scenes=scenes, voice=data.get("voice"), topic_context=ctx)
 
 
-# ---------- LLM path (requires ANTHROPIC_API_KEY with credit) ----------
+# ---------- LLM path ----------
 
-SYSTEM = """You write short-form educational explainer scripts for 30–60 second videos.
+SYSTEM = """You write cinematic short-form video scripts for 30-60 second videos.
 
 Return STRICT JSON ONLY matching:
 {
-  "title": "<3–6 word punchy title>",
+  "title": "<2-5 word title, no punctuation>",
+  "topic_context": "<style/subject hint prepended to every image_prompt — 10-20 words. Should set an overall look (e.g. 'cinematic film still, 35mm, dark fantasy sci-fi' or 'bright nature documentary, golden hour, 4K cinematography')>",
   "scenes": [
     {
-      "narration": "<1–2 sentences, 12–25 words, spoken aloud>",
-      "image_prompt": "<concrete visual: nouns + setting + mood, 15–30 words, no text in image>"
+      "narration": "<1-2 sentences spoken by narrator, 12-25 words, flows into the next scene>",
+      "image_prompt": "<concrete visual: nouns + setting + mood, 15-30 words, no text, no brand names>"
     }
   ]
 }
 
-Rules: exactly 5 scenes. Narration flows as a single explainer. No markdown, no fences, no commentary.
+Rules:
+- Exactly 5 scenes
+- Narration must sound like a human script, not an ad; no "subscribe", no CTAs
+- Image prompts must be concrete (nouns + setting + lighting + mood)
+- No markdown, no code fences, no commentary — JSON only
 """
 
 
-def generate_script(topic: str) -> Script:
+def _parse_json(raw: str) -> dict:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    return json.loads(raw)
+
+
+def _build_script(data: dict) -> Script:
+    ctx = data.get("topic_context")
+    scenes = []
+    for s in data["scenes"]:
+        prompt = s["image_prompt"]
+        if ctx:
+            prompt = f"{ctx}. {prompt}"
+        scenes.append(Scene(narration=s["narration"], image_prompt=prompt))
+    return Script(title=data["title"], scenes=scenes, voice=data.get("voice"), topic_context=ctx)
+
+
+def generate_script_groq(topic: str) -> Script:
+    """Primary LLM path — free, no billing. Needs GROQ_API_KEY."""
+    from groq import Groq
+    client = Groq(api_key=os.environ["GROQ_API_KEY"])
+    # Try models in order of preference; different Groq tiers expose different sets.
+    models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+    last_err = None
+    resp = None
+    for model in models:
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                temperature=0.9,
+                max_tokens=1500,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": f"Topic: {topic}"},
+                ],
+            )
+            break
+        except Exception as e:
+            last_err = e
+    if resp is None:
+        raise RuntimeError(f"All Groq models failed: {last_err}")
+    return _build_script(_parse_json(resp.choices[0].message.content))
+
+
+def generate_script_anthropic(topic: str) -> Script:
+    """Fallback LLM path — higher quality but needs paid credit."""
     import anthropic
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
@@ -69,12 +124,13 @@ def generate_script(topic: str) -> Script:
         system=SYSTEM,
         messages=[{"role": "user", "content": f"Topic: {topic}"}],
     )
-    raw = msg.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    data = json.loads(raw)
-    scenes = [Scene(narration=s["narration"], image_prompt=s["image_prompt"]) for s in data["scenes"]]
-    return Script(title=data["title"], scenes=scenes)
+    return _build_script(_parse_json(msg.content[0].text))
+
+
+def generate_script(topic: str) -> Script:
+    """Try Groq first (free), fall back to Anthropic if configured."""
+    if os.environ.get("GROQ_API_KEY"):
+        return generate_script_groq(topic)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return generate_script_anthropic(topic)
+    raise RuntimeError("No LLM configured. Set GROQ_API_KEY (free) or ANTHROPIC_API_KEY in .env.")
